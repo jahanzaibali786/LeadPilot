@@ -70,23 +70,7 @@ class CampaignController extends Controller
         $this->failStalePendingCampaign($campaign);
         $campaign->refresh();
 
-        return response()->json([
-            'status' => $campaign->status,
-            'status_label' => ucfirst($campaign->status),
-            'progress_percentage' => $campaign->progress_percentage,
-            'total_found' => $campaign->total_found,
-            'total_saved' => $campaign->total_saved,
-            'duplicates_removed' => $campaign->duplicates_removed,
-            'valid_leads' => $campaign->valid_leads,
-            'hot_leads' => $campaign->hot_leads,
-            'warm_leads' => $campaign->warm_leads,
-            'cold_leads' => $campaign->cold_leads,
-            'failed_requests' => $campaign->failed_requests,
-            'failure_reason' => $campaign->failure_reason,
-            'started_at' => optional($campaign->started_at)->toIso8601String(),
-            'completed_at' => optional($campaign->completed_at)->toIso8601String(),
-            'is_active' => in_array($campaign->status, ['pending', 'running'], true),
-        ]);
+        return response()->json($this->statusPayload($campaign));
     }
 
     public function run(Request $request, Campaign $campaign)
@@ -132,6 +116,15 @@ class CampaignController extends Controller
         RunLeadCampaignJob::dispatch($campaign->id)
             ->onConnection($connection);
 
+        if ($request->expectsJson()) {
+            return response()->json([
+                'message' => 'Campaign started automatically. Live progress is shown below.',
+                'show_url' => route('campaigns.show', $campaign),
+                'status_url' => route('campaigns.status', $campaign),
+                'campaign' => $this->statusPayload($campaign->fresh()),
+            ], 202);
+        }
+
         return redirect()
             ->route('campaigns.show', $campaign)
             ->with('success', 'Campaign started automatically. Live progress is shown below.');
@@ -156,6 +149,27 @@ class CampaignController extends Controller
     private function own(Campaign $campaign): void
     {
         abort_unless($campaign->user_id === auth()->id() || auth()->user()->hasRole('Super Admin'), 403);
+    }
+
+    private function statusPayload(Campaign $campaign): array
+    {
+        return [
+            'status' => $campaign->status,
+            'status_label' => ucfirst($campaign->status),
+            'progress_percentage' => $campaign->progress_percentage,
+            'total_found' => $campaign->total_found,
+            'total_saved' => $campaign->total_saved,
+            'duplicates_removed' => $campaign->duplicates_removed,
+            'valid_leads' => $campaign->valid_leads,
+            'hot_leads' => $campaign->hot_leads,
+            'warm_leads' => $campaign->warm_leads,
+            'cold_leads' => $campaign->cold_leads,
+            'failed_requests' => $campaign->failed_requests,
+            'failure_reason' => $campaign->failure_reason,
+            'started_at' => optional($campaign->started_at)->toIso8601String(),
+            'completed_at' => optional($campaign->completed_at)->toIso8601String(),
+            'is_active' => in_array($campaign->status, ['pending', 'running'], true),
+        ];
     }
 
     private function failStalePendingCampaign(Campaign $campaign): void

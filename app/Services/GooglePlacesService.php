@@ -6,6 +6,7 @@ use App\Models\ApiLog;
 use App\Models\Campaign;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
 use RuntimeException;
 
 class GooglePlacesService
@@ -21,8 +22,9 @@ class GooglePlacesService
     ): array
     {
         $limit = min(60, max(20, $requiredResults * 2));
+        $searchTerm = trim($keyword) ?: trim($category);
         $payload = [
-            'textQuery' => trim("$keyword $category in $city Pakistan"),
+            'textQuery' => trim("$searchTerm in $city Pakistan"),
             'languageCode' => 'en',
             'regionCode' => 'PK',
             'pageSize' => 20,
@@ -56,6 +58,41 @@ class GooglePlacesService
         } while ($pageToken && count($places) < $limit && $page < 3);
 
         return array_slice(array_values($places), 0, $limit);
+    }
+
+    public function searchCampaignBusinesses(Campaign $campaign, ?callable $onProgress = null): array
+    {
+        $maxQueries = max(1, config('lead-generator.google_places_max_queries', 10));
+        $existingLeads = $campaign->leads()->count();
+        $remainingTarget = max(1, $campaign->required_leads - $existingLeads);
+        $candidateTarget = min($maxQueries * 60, max(60, $remainingTarget * 2));
+        $terms = array_slice($this->campaignSearchTerms($campaign), 0, $maxQueries);
+        $places = [];
+
+        foreach ($terms as $index => $term) {
+            $results = $this->searchBusinesses(
+                $term,
+                $campaign->city,
+                $campaign->business_category,
+                30,
+                $campaign->id
+            );
+
+            foreach ($results as $place) {
+                $key = $place['id'] ?? md5(json_encode($place));
+                $places[$key] = $place;
+            }
+
+            if ($onProgress) {
+                $onProgress(count($places), $index + 1, count($terms));
+            }
+
+            if (count($places) >= $candidateTarget) {
+                break;
+            }
+        }
+
+        return array_slice(array_values($places), 0, $candidateTarget);
     }
 
     public function getPlaceDetails(string $placeId): array
@@ -131,6 +168,38 @@ class GooglePlacesService
         ]);
         if ($response->failed()) throw new RuntimeException($this->message($response));
         return $response;
+    }
+
+    private function campaignSearchTerms(Campaign $campaign): array
+    {
+        $category = trim($campaign->business_category);
+        $service = $campaign->relationLoaded('service')
+            ? $campaign->service
+            : $campaign->service()->first();
+        $relatedCategories = data_get($service, 'ai_analysis.related_business_categories', []);
+        $baseTerms = [
+            $campaign->keyword,
+            $category,
+            Str::singular($category),
+            Str::plural($category),
+            ...array_slice(is_array($relatedCategories) ? $relatedCategories : [], 0, 3),
+        ];
+        $terms = [];
+
+        foreach ($baseTerms as $term) {
+            $term = trim((string) $term);
+            if ($term !== '') {
+                $terms[] = $term;
+            }
+        }
+
+        foreach (['best', 'top rated', 'popular', 'local', 'nearby', 'recommended', 'established', 'near city center'] as $modifier) {
+            $terms[] = $modifier === 'near city center'
+                ? "$category $modifier"
+                : "$modifier $category";
+        }
+
+        return array_values(array_unique(array_filter($terms), SORT_STRING));
     }
 
     private function message(Response $response): string { return $response->json('error.message') ?? 'Google Places API request failed.'; }

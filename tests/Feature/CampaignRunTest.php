@@ -37,9 +37,16 @@ class CampaignRunTest extends TestCase
         ]);
 
         $this->actingAs($user)
-            ->post(route('campaigns.run', $campaign))
-            ->assertRedirect(route('campaigns.show', $campaign))
-            ->assertSessionHas('success', 'Campaign started automatically. Live progress is shown below.');
+            ->postJson(route('campaigns.run', $campaign))
+            ->assertStatus(202)
+            ->assertJson([
+                'message' => 'Campaign started automatically. Live progress is shown below.',
+                'show_url' => route('campaigns.show', $campaign),
+                'campaign' => [
+                    'status' => 'pending',
+                    'is_active' => true,
+                ],
+            ]);
 
         Queue::assertPushed(
             RunLeadCampaignJob::class,

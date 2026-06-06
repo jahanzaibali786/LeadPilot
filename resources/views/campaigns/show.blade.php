@@ -74,20 +74,21 @@
                     <span class="small">Rating {{ $campaign->minimum_rating }}+ · Reviews {{ $campaign->minimum_reviews }}+</span>
 
                     <div class="d-flex flex-wrap gap-2 mt-4">
-                        @if(in_array($campaign->status, ['pending', 'running']))
+                        <div id="active-campaign-actions" class="d-flex gap-2 {{ in_array($campaign->status, ['pending', 'running']) ? '' : 'd-none' }}">
                             <a class="btn btn-outline-info disabled" aria-disabled="true"><span class="spinner-border spinner-border-sm me-1"></span> Running</a>
                             <form method="post" action="{{ route('campaigns.cancel', $campaign) }}">
                                 @csrf
                                 <button class="btn btn-outline-danger">Cancel</button>
                             </form>
-                        @else
-                            <form method="post" action="{{ route('campaigns.run', $campaign) }}">
+                        </div>
+                        <div id="idle-campaign-actions" class="{{ in_array($campaign->status, ['pending', 'running']) ? 'd-none' : '' }}">
+                            <form id="run-campaign-form" method="post" action="{{ route('campaigns.run', $campaign) }}">
                                 @csrf
                                 <button id="run-campaign-button" class="btn btn-brand">
                                     <i class="bi bi-play-fill"></i> Run campaign
                                 </button>
                             </form>
-                        @endif
+                        </div>
 
                         <a href="{{ route('leads.index', ['campaign_id' => $campaign->id]) }}" class="btn btn-outline-secondary">View leads</a>
                     </div>
@@ -126,6 +127,9 @@
             </table>
         </div>
         <div class="panel-body">{{ $leads->links() }}</div>
+        <div id="lead-refresh-note" class="panel-body pt-0 d-none">
+            New leads are ready. <a href="{{ route('campaigns.show', $campaign) }}">Refresh this list</a>.
+        </div>
     </section>
 </div>
 @endsection
@@ -134,12 +138,12 @@
 <script>
 (() => {
     const monitor = document.getElementById('campaign-monitor');
-    if (!monitor || monitor.dataset.active !== '1') return;
+    if (!monitor) return;
 
     const statusUrl = @json(route('campaigns.status', $campaign));
     const terminalStatuses = ['completed', 'failed', 'cancelled'];
-    let previousStatus = @json($campaign->status);
-    let stopped = false;
+    let stopped = monitor.dataset.active !== '1';
+    let pollTimer = null;
 
     const setText = (id, value) => {
         const element = document.getElementById(id);
@@ -176,8 +180,69 @@
         requestAnimationFrame(frame);
     };
 
+    const toggleCampaignActions = (active) => {
+        document.getElementById('active-campaign-actions')?.classList.toggle('d-none', !active);
+        document.getElementById('idle-campaign-actions')?.classList.toggle('d-none', active);
+    };
+
+    const applyStatus = (data) => {
+        setText('campaign-status', data.status_label);
+        setText('campaign-percent', `${data.progress_percentage}%`);
+        animateCounter('metric-found', data.total_found);
+        animateCounter('metric-saved', data.total_saved);
+        animateCounter('metric-duplicates', data.duplicates_removed);
+        animateCounter('metric-hot', data.hot_leads);
+        animateCounter('metric-warm', data.warm_leads);
+        animateCounter('metric-failed', data.failed_requests);
+
+        const bar = document.getElementById('campaign-progress-bar');
+        bar.style.width = `${data.progress_percentage}%`;
+        bar.setAttribute('aria-valuenow', data.progress_percentage);
+
+        const messages = {
+            pending: 'Preparing the background campaign...',
+            running: 'Searching Google Places and qualifying public business listings...',
+            completed: 'Campaign completed successfully.',
+            failed: 'Campaign stopped because of an error.',
+            cancelled: 'Campaign was cancelled.'
+        };
+        setText('progress-message', messages[data.status] || `Campaign is ${data.status}.`);
+
+        const errorBox = document.getElementById('campaign-error');
+        if (data.failure_reason) {
+            errorBox.textContent = data.failure_reason;
+            errorBox.classList.remove('d-none');
+        } else {
+            errorBox.classList.add('d-none');
+        }
+
+        const active = !terminalStatuses.includes(data.status);
+        toggleCampaignActions(active);
+        document.getElementById('live-indicator')?.classList.toggle('d-none', !active);
+        bar.classList.toggle('progress-bar-animated', active);
+
+        if (!active) {
+            stopped = true;
+            monitor.dataset.active = '0';
+            const runButton = document.getElementById('run-campaign-button');
+            if (runButton) {
+                runButton.disabled = false;
+                runButton.innerHTML = '<i class="bi bi-play-fill"></i> Run campaign';
+            }
+            if (data.status === 'completed') {
+                document.getElementById('lead-refresh-note')?.classList.remove('d-none');
+            }
+        }
+    };
+
+    const schedulePoll = () => {
+        window.clearTimeout(pollTimer);
+        pollTimer = window.setTimeout(poll, 1500);
+    };
+
     const poll = async () => {
         if (stopped || document.hidden) return;
+        window.clearTimeout(pollTimer);
 
         try {
             const response = await fetch(statusUrl, {
@@ -185,62 +250,52 @@
                 cache: 'no-store'
             });
             if (!response.ok) throw new Error('Unable to read campaign status.');
-
-            const data = await response.json();
-            setText('campaign-status', data.status_label);
-            setText('campaign-percent', `${data.progress_percentage}%`);
-            animateCounter('metric-found', data.total_found);
-            animateCounter('metric-saved', data.total_saved);
-            animateCounter('metric-duplicates', data.duplicates_removed);
-            animateCounter('metric-hot', data.hot_leads);
-            animateCounter('metric-warm', data.warm_leads);
-            animateCounter('metric-failed', data.failed_requests);
-
-            const bar = document.getElementById('campaign-progress-bar');
-            bar.style.width = `${data.progress_percentage}%`;
-            bar.setAttribute('aria-valuenow', data.progress_percentage);
-
-            const messages = {
-                pending: 'Preparing the background campaign...',
-                running: 'Searching and qualifying public business listings...',
-                completed: 'Campaign completed successfully. Refreshing collected leads...',
-                failed: 'Campaign stopped because of an error.',
-                cancelled: 'Campaign was cancelled.'
-            };
-            setText('progress-message', messages[data.status] || `Campaign is ${data.status}.`);
-
-            const error = document.getElementById('campaign-error');
-            if (data.failure_reason) {
-                error.textContent = data.failure_reason;
-                error.classList.remove('d-none');
-            }
-
-            if (terminalStatuses.includes(data.status)) {
-                stopped = true;
-                bar.classList.remove('progress-bar-animated');
-                document.getElementById('live-indicator').classList.add('d-none');
-                const runButton = document.getElementById('run-campaign-button');
-                if (runButton) runButton.disabled = false;
-
-                if (data.status === 'completed' && previousStatus !== 'completed') {
-                    window.setTimeout(() => window.location.reload(), 900);
-                }
-                return;
-            }
-
-            previousStatus = data.status;
+            applyStatus(await response.json());
         } catch (error) {
             setText('progress-message', 'Live update was interrupted. Retrying automatically...');
         }
 
-        window.setTimeout(poll, 2000);
+        if (!stopped) schedulePoll();
     };
 
     document.addEventListener('visibilitychange', () => {
         if (!document.hidden && !stopped) poll();
     });
 
-    poll();
+    document.getElementById('run-campaign-form')?.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const form = event.currentTarget;
+        const button = document.getElementById('run-campaign-button');
+        button.disabled = true;
+        button.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Starting...';
+
+        try {
+            const response = await fetch(form.action, {
+                method: 'POST',
+                headers: {
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
+                },
+                body: new FormData(form)
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.message || 'Campaign could not be started.');
+
+            stopped = false;
+            monitor.dataset.active = '1';
+            document.getElementById('lead-refresh-note')?.classList.add('d-none');
+            applyStatus(data.campaign);
+            poll();
+        } catch (error) {
+            button.disabled = false;
+            button.innerHTML = '<i class="bi bi-play-fill"></i> Run campaign';
+            const errorBox = document.getElementById('campaign-error');
+            errorBox.textContent = error.message;
+            errorBox.classList.remove('d-none');
+        }
+    });
+
+    if (!stopped) poll();
 })();
 </script>
 @endpush

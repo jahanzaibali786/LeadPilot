@@ -54,7 +54,7 @@
                             @if($isActive)
                                 <a class="btn btn-sm btn-outline-info" href="{{ route('campaigns.show', $campaign) }}" title="View live progress"><i class="bi bi-activity"></i></a>
                             @else
-                                <form method="post" action="{{ route('campaigns.run', $campaign) }}">@csrf<button class="btn btn-sm btn-brand" title="Run campaign"><i class="bi bi-play-fill"></i></button></form>
+                                <form class="ajax-campaign-run" method="post" action="{{ route('campaigns.run', $campaign) }}" data-show-url="{{ route('campaigns.show', $campaign) }}">@csrf<button class="btn btn-sm btn-brand" title="Run campaign"><i class="bi bi-play-fill"></i></button></form>
                             @endif
                             <a class="btn btn-sm btn-light" href="{{ route('campaigns.show', $campaign) }}" title="Open campaign"><i class="bi bi-arrow-right"></i></a>
                         </div>
@@ -69,3 +69,34 @@
     <div class="panel-body">{{ $campaigns->links() }}</div>
 </section>
 @endsection
+
+@push('scripts')
+<script>
+document.querySelectorAll('.ajax-campaign-run').forEach((form) => {
+    form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const button = form.querySelector('button');
+        button.disabled = true;
+        button.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+
+        try {
+            const response = await fetch(form.action, {
+                method: 'POST',
+                headers: {
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
+                },
+                body: new FormData(form)
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.message || 'Campaign could not be started.');
+            window.location.assign(data.show_url || form.dataset.showUrl);
+        } catch (error) {
+            button.disabled = false;
+            button.innerHTML = '<i class="bi bi-play-fill"></i>';
+            window.alert(error.message);
+        }
+    });
+});
+</script>
+@endpush

@@ -26,12 +26,14 @@ class LeadGenerationService
         ]);
 
         try {
-            $places = $this->places->searchBusinesses(
-                $campaign->keyword ?: $campaign->business_category,
-                $campaign->city,
-                $campaign->business_category,
-                $campaign->required_leads,
-                $campaign->id
+            $places = $this->places->searchCampaignBusinesses(
+                $campaign,
+                function (int $found, int $queryNumber, int $queryTotal) use ($campaign): void {
+                    $campaign->update([
+                        'total_found' => $found,
+                        'progress_percentage' => min(24, 5 + (int) floor(19 * ($queryNumber / max($queryTotal, 1)))),
+                    ]);
+                }
             );
             $campaign->update(['total_found'=>count($places),'progress_percentage'=>25]);
             Log::channel('campaigns')->info('Google Places search completed.', [

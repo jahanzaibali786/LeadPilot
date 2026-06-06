@@ -25,8 +25,24 @@ class PageRenderTest extends TestCase
         $this->get(route('campaigns.show', $campaign))
             ->assertOk()
             ->assertSee('campaign-progress-bar', false)
+            ->assertSee('run-campaign-form', false)
             ->assertSee('Collected leads');
-        $this->get('/leads')->assertOk()->assertSee('Test Restaurant');
+        foreach (range(1, 20) as $index) {
+            Lead::create([
+                'user_id' => $user->id,
+                'service_id' => $service->id,
+                'campaign_id' => $campaign->id,
+                'business_name' => "Test Restaurant $index",
+                'city' => 'Lahore',
+                'lead_score' => 80,
+                'lead_quality' => 'Warm',
+            ]);
+        }
+        $this->get('/leads')
+            ->assertOk()
+            ->assertSee('Test Restaurant')
+            ->assertSee('pagination', false)
+            ->assertSee('page-link', false);
         $this->get('/leads/board')
             ->assertOk()
             ->assertSee('Sales pipeline')

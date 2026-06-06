@@ -68,7 +68,7 @@ class CampaignLeadPersistenceTest extends TestCase
         ];
 
         $places = Mockery::mock(GooglePlacesService::class);
-        $places->shouldReceive('searchBusinesses')->once()->andReturn([['id' => 'place-1']]);
+        $places->shouldReceive('searchCampaignBusinesses')->once()->andReturn([['id' => 'place-1']]);
         $places->shouldReceive('normalizeGoogleLead')->once()->andReturn($normalized);
         $places->shouldReceive('applyFilters')->once()->andReturnTrue();
 
