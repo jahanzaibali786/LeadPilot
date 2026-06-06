@@ -14,12 +14,12 @@ class CampaignRunTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_campaign_runs_on_automatic_background_connection(): void
+    public function test_campaign_runs_on_automatic_deferred_connection(): void
     {
         Queue::fake();
         config([
             'services.google_places.key' => 'test-key',
-            'lead-generator.campaign_queue_connection' => 'background',
+            'lead-generator.campaign_queue_connection' => 'deferred',
         ]);
 
         $user = User::factory()->create();
@@ -44,10 +44,70 @@ class CampaignRunTest extends TestCase
         Queue::assertPushed(
             RunLeadCampaignJob::class,
             fn (RunLeadCampaignJob $job) => $job->campaignId === $campaign->id
-                && $job->connection === 'background'
+                && $job->connection === 'deferred'
         );
 
         $this->assertNotNull($campaign->fresh()->started_at);
+    }
+
+    public function test_new_campaign_is_draft_and_not_running(): void
+    {
+        $user = User::factory()->create();
+        $service = Service::create([
+            'user_id' => $user->id,
+            'service_name' => 'Website Development',
+            'category' => 'Web Development',
+        ]);
+
+        $this->actingAs($user)->post(route('campaigns.store'), [
+            'title' => 'Draft campaign',
+            'service_id' => $service->id,
+            'city' => 'Lahore',
+            'business_category' => 'Restaurant',
+            'minimum_rating' => 3.5,
+            'minimum_reviews' => 10,
+            'required_leads' => 20,
+        ])->assertRedirect();
+
+        $this->assertDatabaseHas('campaigns', [
+            'title' => 'Draft campaign',
+            'status' => 'draft',
+            'progress_percentage' => 0,
+        ]);
+    }
+
+    public function test_stale_pending_campaign_is_marked_failed_with_log_guidance(): void
+    {
+        config(['lead-generator.stale_pending_seconds' => 30]);
+        $user = User::factory()->create();
+        $service = Service::create([
+            'user_id' => $user->id,
+            'service_name' => 'Website Development',
+            'category' => 'Web Development',
+        ]);
+        $campaign = Campaign::create([
+            'user_id' => $user->id,
+            'service_id' => $service->id,
+            'title' => 'Stale campaign',
+            'city' => 'Lahore',
+            'business_category' => 'Restaurant',
+            'status' => 'pending',
+            'progress_percentage' => 0,
+            'started_at' => now()->subMinute(),
+        ]);
+
+        $this->actingAs($user)
+            ->getJson(route('campaigns.status', $campaign))
+            ->assertOk()
+            ->assertJson([
+                'status' => 'failed',
+                'is_active' => false,
+            ]);
+
+        $this->assertStringContainsString(
+            'storage/logs/campaigns.log',
+            $campaign->fresh()->failure_reason
+        );
     }
 
     public function test_owner_can_poll_live_campaign_progress(): void

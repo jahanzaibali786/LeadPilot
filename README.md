@@ -1,4 +1,4 @@
-﻿# LeadPilot
+# LeadPilot PK
 
 AI-assisted Laravel CRM for finding Pakistani businesses that have public Google Business data but no listed website. The application uses the official Google Places API and generates outreach drafts for manual review; it does not scrape Google Maps pages or send automated messages.
 
@@ -24,7 +24,8 @@ Configure MySQL in `.env`, then add:
 GOOGLE_PLACES_API_KEY=your_google_places_api_key
 ANTHROPIC_API_KEY=your_anthropic_api_key
 QUEUE_CONNECTION=database
-CAMPAIGN_QUEUE_CONNECTION=background
+CAMPAIGN_QUEUE_CONNECTION=deferred
+CAMPAIGN_STALE_PENDING_SECONDS=30
 ```
 
 Run:
@@ -34,10 +35,13 @@ php artisan migrate --seed
 php artisan serve
 ```
 
-Campaigns use Laravel's `background` queue connection by default, so clicking
-**Run campaign** starts a separate PHP process automatically. No terminal queue
-worker is required. On a production server managed by Supervisor, set
+Campaigns use Laravel's `deferred` queue connection by default, so clicking
+**Run campaign** executes automatically after the browser response. No terminal
+queue worker is required in XAMPP. On a production server managed by Supervisor, set
 `CAMPAIGN_QUEUE_CONNECTION=database` and run the normal queue worker.
+
+Campaign execution traces are written to `storage/logs/campaigns.log`. General
+Laravel and HTTP errors remain in `storage/logs/laravel.log`.
 
 Demo login after seeding: `admin@leadpilot.pk` / `password`. Change this password immediately outside local development.
 
@@ -57,4 +61,3 @@ php artisan test
 php artisan route:list
 php artisan view:cache
 ```
-

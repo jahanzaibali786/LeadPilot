@@ -34,6 +34,8 @@
                             Campaign completed successfully.
                         @elseif($campaign->status === 'failed')
                             Campaign stopped because of an error.
+                        @elseif($campaign->status === 'draft')
+                            Ready to run. This campaign is not active.
                         @else
                             Campaign is {{ $campaign->status }}.
                         @endif
@@ -49,7 +51,7 @@
                             ['failed', 'Failed calls', $campaign->failed_requests],
                         ] as [$key, $label, $value])
                             <div class="col-6 col-md-4 col-xl-2">
-                                <strong id="metric-{{ $key }}" class="h4 d-block">{{ $value }}</strong>
+                                <strong id="metric-{{ $key }}" class="h4 d-block animated-counter" data-value="{{ $value }}">{{ $value }}</strong>
                                 <span class="muted">{{ $label }}</span>
                             </div>
                         @endforeach
@@ -72,17 +74,18 @@
                     <span class="small">Rating {{ $campaign->minimum_rating }}+ · Reviews {{ $campaign->minimum_reviews }}+</span>
 
                     <div class="d-flex flex-wrap gap-2 mt-4">
-                        <form method="post" action="{{ route('campaigns.run', $campaign) }}">
-                            @csrf
-                            <button id="run-campaign-button" class="btn btn-brand" @disabled(in_array($campaign->status, ['pending', 'running']))>
-                                <i class="bi bi-play-fill"></i> Run campaign
-                            </button>
-                        </form>
-
                         @if(in_array($campaign->status, ['pending', 'running']))
+                            <a class="btn btn-outline-info disabled" aria-disabled="true"><span class="spinner-border spinner-border-sm me-1"></span> Running</a>
                             <form method="post" action="{{ route('campaigns.cancel', $campaign) }}">
                                 @csrf
                                 <button class="btn btn-outline-danger">Cancel</button>
+                            </form>
+                        @else
+                            <form method="post" action="{{ route('campaigns.run', $campaign) }}">
+                                @csrf
+                                <button id="run-campaign-button" class="btn btn-brand">
+                                    <i class="bi bi-play-fill"></i> Run campaign
+                                </button>
                             </form>
                         @endif
 
@@ -143,6 +146,36 @@
         if (element) element.textContent = value ?? 0;
     };
 
+    const animateCounter = (id, nextValue) => {
+        const element = document.getElementById(id);
+        if (!element) return;
+
+        const startValue = Number(element.dataset.value ?? element.textContent) || 0;
+        const endValue = Number(nextValue) || 0;
+        if (startValue === endValue) return;
+
+        const direction = endValue > startValue ? 'counter-up' : 'counter-down';
+        const startedAt = performance.now();
+        const duration = Math.min(900, 350 + Math.abs(endValue - startValue) * 80);
+
+        element.classList.remove('counter-up', 'counter-down');
+        void element.offsetWidth;
+        element.classList.add(direction);
+
+        const frame = (now) => {
+            const progress = Math.min(1, (now - startedAt) / duration);
+            const eased = 1 - Math.pow(1 - progress, 3);
+            element.textContent = Math.round(startValue + (endValue - startValue) * eased);
+            if (progress < 1) requestAnimationFrame(frame);
+            else {
+                element.textContent = endValue;
+                element.dataset.value = endValue;
+            }
+        };
+
+        requestAnimationFrame(frame);
+    };
+
     const poll = async () => {
         if (stopped || document.hidden) return;
 
@@ -156,12 +189,12 @@
             const data = await response.json();
             setText('campaign-status', data.status_label);
             setText('campaign-percent', `${data.progress_percentage}%`);
-            setText('metric-found', data.total_found);
-            setText('metric-saved', data.total_saved);
-            setText('metric-duplicates', data.duplicates_removed);
-            setText('metric-hot', data.hot_leads);
-            setText('metric-warm', data.warm_leads);
-            setText('metric-failed', data.failed_requests);
+            animateCounter('metric-found', data.total_found);
+            animateCounter('metric-saved', data.total_saved);
+            animateCounter('metric-duplicates', data.duplicates_removed);
+            animateCounter('metric-hot', data.hot_leads);
+            animateCounter('metric-warm', data.warm_leads);
+            animateCounter('metric-failed', data.failed_requests);
 
             const bar = document.getElementById('campaign-progress-bar');
             bar.style.width = `${data.progress_percentage}%`;
@@ -186,7 +219,8 @@
                 stopped = true;
                 bar.classList.remove('progress-bar-animated');
                 document.getElementById('live-indicator').classList.add('d-none');
-                document.getElementById('run-campaign-button').disabled = false;
+                const runButton = document.getElementById('run-campaign-button');
+                if (runButton) runButton.disabled = false;
 
                 if (data.status === 'completed' && previousStatus !== 'completed') {
                     window.setTimeout(() => window.location.reload(), 900);

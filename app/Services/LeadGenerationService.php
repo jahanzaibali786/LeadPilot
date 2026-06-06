@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Blacklist;
 use App\Models\Campaign;
 use App\Models\Lead;
+use Illuminate\Support\Facades\Log;
 use Throwable;
 
 class LeadGenerationService
@@ -17,10 +18,21 @@ class LeadGenerationService
 
     public function run(Campaign $campaign): void
     {
-        $campaign->update(['status'=>'running','progress_percentage'=>5,'started_at'=>now(),'failure_reason'=>null]);
+        $campaign->update(['status'=>'running','progress_percentage'=>5,'failure_reason'=>null]);
+        Log::channel('campaigns')->info('Campaign generation entered running state.', [
+            'campaign_id' => $campaign->id,
+            'keyword' => $campaign->keyword ?: $campaign->business_category,
+            'city' => $campaign->city,
+        ]);
+
         try {
             $places = $this->places->searchBusinesses($campaign->keyword ?: $campaign->business_category, $campaign->city, $campaign->business_category);
             $campaign->update(['total_found'=>count($places),'progress_percentage'=>25]);
+            Log::channel('campaigns')->info('Google Places search completed.', [
+                'campaign_id' => $campaign->id,
+                'places_found' => count($places),
+            ]);
+
             foreach ($places as $index => $place) {
                 if ($campaign->fresh()->status === 'cancelled') return;
                 $campaign->update([
@@ -44,8 +56,18 @@ class LeadGenerationService
                 if ($campaign->total_saved >= $campaign->required_leads) break;
             }
             $campaign->update(['status'=>'completed','progress_percentage'=>100,'completed_at'=>now()]);
+            Log::channel('campaigns')->info('Campaign completed.', [
+                'campaign_id' => $campaign->id,
+                'total_found' => $campaign->fresh()->total_found,
+                'total_saved' => $campaign->fresh()->total_saved,
+            ]);
         } catch (Throwable $e) {
             report($e);
+            Log::channel('campaigns')->error('Campaign generation failed.', [
+                'campaign_id' => $campaign->id,
+                'exception' => $e::class,
+                'error' => $e->getMessage(),
+            ]);
             $campaign->increment('failed_requests');
             $campaign->update(['status'=>'failed','failure_reason'=>$e->getMessage(),'completed_at'=>now()]);
         }

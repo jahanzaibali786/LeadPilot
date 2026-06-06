@@ -6,11 +6,12 @@ return [
     | Campaign Queue Connection
     |--------------------------------------------------------------------------
     |
-    | The "background" driver starts the campaign in a separate PHP process
-    | after the HTTP response is sent, so a persistent queue worker is not
-    | required. Production servers using Supervisor may change this to
-    | "database" or "redis".
+    | The "deferred" driver runs the campaign after the HTTP response is sent,
+    | so XAMPP does not need a terminal queue worker. Production servers using
+    | Supervisor may change this to "database" or "redis".
     |
     */
-    'campaign_queue_connection' => env('CAMPAIGN_QUEUE_CONNECTION', 'background'),
+    'campaign_queue_connection' => env('CAMPAIGN_QUEUE_CONNECTION', 'deferred'),
+
+    'stale_pending_seconds' => (int) env('CAMPAIGN_STALE_PENDING_SECONDS', 30),
 ];
