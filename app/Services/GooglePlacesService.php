@@ -12,15 +12,50 @@ class GooglePlacesService
 {
     private const BASE = 'https://places.googleapis.com/v1';
 
-    public function searchBusinesses(string $keyword, string $city, string $category): array
+    public function searchBusinesses(
+        string $keyword,
+        string $city,
+        string $category,
+        int $requiredResults = 20,
+        ?int $campaignId = null
+    ): array
     {
-        $response = $this->request('/places:searchText', [
+        $limit = min(60, max(20, $requiredResults * 2));
+        $payload = [
             'textQuery' => trim("$keyword $category in $city Pakistan"),
             'languageCode' => 'en',
             'regionCode' => 'PK',
             'pageSize' => 20,
-        ], 'places.id,places.displayName,places.formattedAddress,places.location,places.rating,places.userRatingCount,places.types,places.websiteUri,places.nationalPhoneNumber,places.internationalPhoneNumber,places.googleMapsUri');
-        return $response->json('places', []);
+        ];
+        $fields = 'places.id,places.displayName,places.formattedAddress,places.location,places.rating,places.userRatingCount,places.types,places.websiteUri,places.nationalPhoneNumber,places.internationalPhoneNumber,places.googleMapsUri,nextPageToken';
+        $places = [];
+        $pageToken = null;
+        $page = 0;
+
+        do {
+            $page++;
+            $requestPayload = $payload;
+            if ($pageToken) {
+                $requestPayload['pageToken'] = $pageToken;
+            }
+
+            $response = $this->request(
+                '/places:searchText',
+                $requestPayload,
+                $fields,
+                $campaignId,
+                $page
+            );
+
+            foreach ($response->json('places', []) as $place) {
+                $key = $place['id'] ?? md5(json_encode($place));
+                $places[$key] = $place;
+            }
+
+            $pageToken = $response->json('nextPageToken');
+        } while ($pageToken && count($places) < $limit && $page < 3);
+
+        return array_slice(array_values($places), 0, $limit);
     }
 
     public function getPlaceDetails(string $placeId): array
@@ -69,12 +104,31 @@ class GooglePlacesService
         return true;
     }
 
-    private function request(string $endpoint, array $payload, string $fields): Response
+    private function request(
+        string $endpoint,
+        array $payload,
+        string $fields,
+        ?int $campaignId = null,
+        int $page = 1
+    ): Response
     {
         $started = microtime(true);
         $response = Http::withHeaders(['X-Goog-Api-Key' => config('services.google_places.key'), 'X-Goog-FieldMask' => $fields])
             ->timeout(30)->post(self::BASE.$endpoint, $payload);
-        ApiLog::create(['provider'=>'google_places','endpoint'=>$endpoint,'status_code'=>$response->status(),'request_data'=>$payload,'response_meta'=>['count'=>count($response->json('places', []))],'error'=>$response->failed()?$this->message($response):null,'duration_ms'=>(int)((microtime(true)-$started)*1000)]);
+        ApiLog::create([
+            'campaign_id' => $campaignId,
+            'provider' => 'google_places',
+            'endpoint' => $endpoint,
+            'status_code' => $response->status(),
+            'request_data' => $payload,
+            'response_meta' => [
+                'page' => $page,
+                'count' => count($response->json('places', [])),
+                'has_next_page' => (bool) $response->json('nextPageToken'),
+            ],
+            'error' => $response->failed() ? $this->message($response) : null,
+            'duration_ms' => (int) ((microtime(true) - $started) * 1000),
+        ]);
         if ($response->failed()) throw new RuntimeException($this->message($response));
         return $response;
     }

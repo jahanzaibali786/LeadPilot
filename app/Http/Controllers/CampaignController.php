@@ -99,6 +99,12 @@ class CampaignController extends Controller
             'This campaign is already queued or running.'
         );
 
+        $qualityCounts = $campaign->leads()
+            ->selectRaw('lead_quality, count(*) total')
+            ->groupBy('lead_quality')
+            ->pluck('total', 'lead_quality');
+        $savedCount = $qualityCounts->sum();
+
         $campaign->update([
             'status' => 'pending',
             'progress_percentage' => 0,
@@ -106,12 +112,12 @@ class CampaignController extends Controller
             'started_at' => now(),
             'completed_at' => null,
             'total_found' => 0,
-            'total_saved' => 0,
             'duplicates_removed' => 0,
-            'valid_leads' => 0,
-            'hot_leads' => 0,
-            'warm_leads' => 0,
-            'cold_leads' => 0,
+            'total_saved' => $savedCount,
+            'valid_leads' => $savedCount,
+            'hot_leads' => (int) ($qualityCounts['Hot'] ?? 0),
+            'warm_leads' => (int) ($qualityCounts['Warm'] ?? 0),
+            'cold_leads' => (int) ($qualityCounts['Cold'] ?? 0),
             'failed_requests' => 0,
         ]);
 

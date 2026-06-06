@@ -17,4 +17,10 @@ class Lead extends Model
     public function followUps() { return $this->hasMany(FollowUp::class)->latest('follow_up_date'); }
     public function activities() { return $this->hasMany(ActivityLog::class)->latest(); }
     public function scopeOwnedBy(Builder $query, User $user): Builder { return $user->hasRole('Super Admin') ? $query : $query->where('user_id', $user->id); }
+    public function uniqueIdentity(): string
+    {
+        if ($this->google_place_id) return 'place:'.strtolower(trim($this->google_place_id));
+        if ($this->phone) return 'phone:'.preg_replace('/\D+/', '', $this->phone);
+        return 'business:'.strtolower(trim($this->business_name.'|'.$this->city));
+    }
 }

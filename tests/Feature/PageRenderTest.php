@@ -27,6 +27,10 @@ class PageRenderTest extends TestCase
             ->assertSee('campaign-progress-bar', false)
             ->assertSee('Collected leads');
         $this->get('/leads')->assertOk()->assertSee('Test Restaurant');
-        $this->get('/leads/board')->assertOk()->assertSee('Sales pipeline');
+        $this->get('/leads/board')
+            ->assertOk()
+            ->assertSee('Sales pipeline')
+            ->assertSee('Unique all stages')
+            ->assertSee('stage-unique-button', false);
     }
 }

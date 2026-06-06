@@ -26,12 +26,21 @@ class LeadGenerationService
         ]);
 
         try {
-            $places = $this->places->searchBusinesses($campaign->keyword ?: $campaign->business_category, $campaign->city, $campaign->business_category);
+            $places = $this->places->searchBusinesses(
+                $campaign->keyword ?: $campaign->business_category,
+                $campaign->city,
+                $campaign->business_category,
+                $campaign->required_leads,
+                $campaign->id
+            );
             $campaign->update(['total_found'=>count($places),'progress_percentage'=>25]);
             Log::channel('campaigns')->info('Google Places search completed.', [
                 'campaign_id' => $campaign->id,
                 'places_found' => count($places),
             ]);
+
+            $seen = [];
+            $savedCount = $campaign->leads()->count();
 
             foreach ($places as $index => $place) {
                 if ($campaign->fresh()->status === 'cancelled') return;
@@ -40,21 +49,40 @@ class LeadGenerationService
                 ]);
                 $data = $this->places->normalizeGoogleLead($place, $campaign);
                 if (! $this->places->applyFilters($data, $campaign) || $this->blacklisted($campaign->user_id, $data)) continue;
-                if ($this->duplicates->find($campaign->user_id, $data)) {
+
+                $identity = $this->duplicates->identityKey($data);
+                if (isset($seen[$identity])) {
                     $campaign->increment('duplicates_removed');
                     continue;
                 }
-                $data = array_merge($data, $this->scoring->score($data, $campaign), [
-                    'user_id'=>$campaign->user_id,'campaign_id'=>$campaign->id,'service_id'=>$campaign->service_id,
+                $seen[$identity] = true;
+
+                $scoredData = array_merge($data, $this->scoring->score($data, $campaign), [
                     'suggested_offer'=>$this->offer($data['business_category']),
                 ]);
-                $lead = Lead::create($data);
+
+                $existing = $this->duplicates->find($campaign->user_id, $data);
+                if ($existing) {
+                    if ($existing->campaign_id === $campaign->id) {
+                        $existing->update($scoredData);
+                    } else {
+                        $campaign->increment('duplicates_removed');
+                    }
+                    continue;
+                }
+
+                $lead = Lead::create($scoredData + [
+                    'user_id'=>$campaign->user_id,
+                    'campaign_id'=>$campaign->id,
+                    'service_id'=>$campaign->service_id,
+                ]);
                 $lead->activities()->create(['user_id'=>$campaign->user_id,'action'=>'created','description'=>'Lead imported from Google Places API.']);
-                $campaign->increment('total_saved');
-                $campaign->increment('valid_leads');
-                $campaign->increment(strtolower($lead->lead_quality).'_leads');
-                if ($campaign->total_saved >= $campaign->required_leads) break;
+                $savedCount++;
+
+                if ($savedCount >= $campaign->required_leads) break;
             }
+
+            $this->syncCampaignLeadTotals($campaign);
             $campaign->update(['status'=>'completed','progress_percentage'=>100,'completed_at'=>now()]);
             Log::channel('campaigns')->info('Campaign completed.', [
                 'campaign_id' => $campaign->id,
@@ -71,6 +99,23 @@ class LeadGenerationService
             $campaign->increment('failed_requests');
             $campaign->update(['status'=>'failed','failure_reason'=>$e->getMessage(),'completed_at'=>now()]);
         }
+    }
+
+    private function syncCampaignLeadTotals(Campaign $campaign): void
+    {
+        $qualityCounts = $campaign->leads()
+            ->selectRaw('lead_quality, count(*) total')
+            ->groupBy('lead_quality')
+            ->pluck('total', 'lead_quality');
+        $total = $qualityCounts->sum();
+
+        $campaign->update([
+            'total_saved' => $total,
+            'valid_leads' => $total,
+            'hot_leads' => (int) ($qualityCounts['Hot'] ?? 0),
+            'warm_leads' => (int) ($qualityCounts['Warm'] ?? 0),
+            'cold_leads' => (int) ($qualityCounts['Cold'] ?? 0),
+        ]);
     }
 
     private function blacklisted(int $userId, array $data): bool
