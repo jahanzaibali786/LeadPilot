@@ -1,0 +1,83 @@
+<?php
+
+namespace App\Services;
+
+use App\Models\ApiLog;
+use App\Models\Campaign;
+use Illuminate\Http\Client\Response;
+use Illuminate\Support\Facades\Http;
+use RuntimeException;
+
+class GooglePlacesService
+{
+    private const BASE = 'https://places.googleapis.com/v1';
+
+    public function searchBusinesses(string $keyword, string $city, string $category): array
+    {
+        $response = $this->request('/places:searchText', [
+            'textQuery' => trim("$keyword $category in $city Pakistan"),
+            'languageCode' => 'en',
+            'regionCode' => 'PK',
+            'pageSize' => 20,
+        ], 'places.id,places.displayName,places.formattedAddress,places.location,places.rating,places.userRatingCount,places.types,places.websiteUri,places.nationalPhoneNumber,places.internationalPhoneNumber,places.googleMapsUri');
+        return $response->json('places', []);
+    }
+
+    public function getPlaceDetails(string $placeId): array
+    {
+        $response = Http::withHeaders([
+            'X-Goog-Api-Key' => config('services.google_places.key'),
+            'X-Goog-FieldMask' => 'id,displayName,formattedAddress,location,rating,userRatingCount,types,websiteUri,nationalPhoneNumber,internationalPhoneNumber,googleMapsUri',
+        ])->timeout(20)->get(self::BASE.'/places/'.$placeId);
+        if ($response->failed()) throw new RuntimeException($this->message($response));
+        return $response->json();
+    }
+
+    public function normalizeGoogleLead(array $place, Campaign $campaign): array
+    {
+        $phone = app(PhoneNormalizerService::class)->normalize($place['internationalPhoneNumber'] ?? $place['nationalPhoneNumber'] ?? null);
+        $website = $place['websiteUri'] ?? null;
+        return array_merge($phone, [
+            'google_place_id' => $place['id'] ?? null,
+            'google_maps_url' => $place['googleMapsUri'] ?? $this->generateGoogleMapsUrl($place['id'] ?? null, data_get($place, 'location.latitude'), data_get($place, 'location.longitude')),
+            'business_name' => data_get($place, 'displayName.text', 'Unknown business'),
+            'business_category' => str_replace('_', ' ', $place['types'][0] ?? $campaign->business_category),
+            'address' => $place['formattedAddress'] ?? null, 'city' => $campaign->city, 'province' => $campaign->province,
+            'country' => 'Pakistan', 'latitude' => data_get($place, 'location.latitude'), 'longitude' => data_get($place, 'location.longitude'),
+            'rating' => $place['rating'] ?? null, 'total_reviews' => $place['userRatingCount'] ?? 0,
+            'website' => $website, 'has_website' => ! empty($website),
+            'website_status' => $website ? 'Has Website' : 'No Website',
+            'online_presence_status' => $website ? 'Has Website' : (! empty($phone['phone']) ? 'Google Listing + Phone' : 'Google Listing Only'),
+            'opportunity_type' => $website ? 'Website Redesign Opportunity' : 'New Website Opportunity',
+            'source_name' => 'Google Places API', 'source_url' => $place['googleMapsUri'] ?? null, 'last_checked_at' => now(),
+        ]);
+    }
+
+    public function hasWebsite(array $place): bool { return ! empty($place['websiteUri']); }
+    public function generateGoogleMapsUrl(?string $placeId, mixed $lat = null, mixed $lng = null): ?string
+    {
+        if ($placeId) return 'https://www.google.com/maps/place/?q=place_id:'.$placeId;
+        return $lat && $lng ? "https://www.google.com/maps?q=$lat,$lng" : null;
+    }
+
+    public function applyFilters(array $lead, Campaign $campaign): bool
+    {
+        if ($campaign->only_without_website && $lead['has_website']) return false;
+        if ($campaign->only_with_phone && empty($lead['phone'])) return false;
+        if (($lead['rating'] ?? 0) < $campaign->minimum_rating) return false;
+        if (($lead['total_reviews'] ?? 0) < $campaign->minimum_reviews) return false;
+        return true;
+    }
+
+    private function request(string $endpoint, array $payload, string $fields): Response
+    {
+        $started = microtime(true);
+        $response = Http::withHeaders(['X-Goog-Api-Key' => config('services.google_places.key'), 'X-Goog-FieldMask' => $fields])
+            ->timeout(30)->post(self::BASE.$endpoint, $payload);
+        ApiLog::create(['provider'=>'google_places','endpoint'=>$endpoint,'status_code'=>$response->status(),'request_data'=>$payload,'response_meta'=>['count'=>count($response->json('places', []))],'error'=>$response->failed()?$this->message($response):null,'duration_ms'=>(int)((microtime(true)-$started)*1000)]);
+        if ($response->failed()) throw new RuntimeException($this->message($response));
+        return $response;
+    }
+
+    private function message(Response $response): string { return $response->json('error.message') ?? 'Google Places API request failed.'; }
+}
