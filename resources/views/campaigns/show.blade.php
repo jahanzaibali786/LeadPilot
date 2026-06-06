@@ -68,7 +68,10 @@
             <section class="panel h-100">
                 <div class="panel-body">
                     <p class="muted mb-1">Target</p>
-                    <strong>{{ $campaign->business_category }} · {{ $campaign->city }}</strong>
+                    <strong>{{ $campaign->business_category }} in {{ $campaign->city }}, {{ $campaign->country }}</strong>
+                    @if($campaign->latitude !== null && $campaign->longitude !== null)
+                        <div class="muted mt-1">{{ number_format($campaign->radius_meters / 1000, 1) }} km map radius</div>
+                    @endif
                     <hr>
                     <p class="muted mb-1">Qualification</p>
                     <span class="small">Rating {{ $campaign->minimum_rating }}+ · Reviews {{ $campaign->minimum_reviews }}+</span>

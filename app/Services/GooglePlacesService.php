@@ -18,17 +18,36 @@ class GooglePlacesService
         string $city,
         string $category,
         int $requiredResults = 20,
-        ?int $campaignId = null
+        ?int $campaignId = null,
+        ?string $countryCode = null,
+        ?string $country = null,
+        ?string $province = null,
+        ?float $latitude = null,
+        ?float $longitude = null,
+        ?int $radiusMeters = null
     ): array
     {
         $limit = min(60, max(20, $requiredResults * 2));
         $searchTerm = trim($keyword) ?: trim($category);
+        $location = implode(', ', array_filter([$city, $province, $country]));
         $payload = [
-            'textQuery' => trim("$searchTerm in $city Pakistan"),
+            'textQuery' => $latitude !== null && $longitude !== null
+                ? $searchTerm
+                : trim("$searchTerm in $location"),
             'languageCode' => 'en',
-            'regionCode' => 'PK',
             'pageSize' => 20,
         ];
+        if ($countryCode) {
+            $payload['regionCode'] = strtoupper($countryCode);
+        }
+        if ($latitude !== null && $longitude !== null) {
+            $payload['locationBias'] = [
+                'circle' => [
+                    'center' => ['latitude' => $latitude, 'longitude' => $longitude],
+                    'radius' => (float) min(50000, max(500, $radiusMeters ?? 10000)),
+                ],
+            ];
+        }
         $fields = 'places.id,places.displayName,places.formattedAddress,places.location,places.rating,places.userRatingCount,places.types,places.websiteUri,places.nationalPhoneNumber,places.internationalPhoneNumber,places.googleMapsUri,nextPageToken';
         $places = [];
         $pageToken = null;
@@ -75,7 +94,13 @@ class GooglePlacesService
                 $campaign->city,
                 $campaign->business_category,
                 30,
-                $campaign->id
+                $campaign->id,
+                $campaign->country_code,
+                $campaign->country,
+                $campaign->province,
+                $campaign->latitude,
+                $campaign->longitude,
+                $campaign->radius_meters
             );
 
             foreach ($results as $place) {
@@ -107,7 +132,10 @@ class GooglePlacesService
 
     public function normalizeGoogleLead(array $place, Campaign $campaign): array
     {
-        $phone = app(PhoneNormalizerService::class)->normalize($place['internationalPhoneNumber'] ?? $place['nationalPhoneNumber'] ?? null);
+        $phone = app(PhoneNormalizerService::class)->normalize(
+            $place['internationalPhoneNumber'] ?? $place['nationalPhoneNumber'] ?? null,
+            $campaign->country_code
+        );
         $website = $place['websiteUri'] ?? null;
         return array_merge($phone, [
             'google_place_id' => $place['id'] ?? null,
@@ -115,7 +143,7 @@ class GooglePlacesService
             'business_name' => data_get($place, 'displayName.text', 'Unknown business'),
             'business_category' => str_replace('_', ' ', $place['types'][0] ?? $campaign->business_category),
             'address' => $place['formattedAddress'] ?? null, 'city' => $campaign->city, 'province' => $campaign->province,
-            'country' => 'Pakistan', 'latitude' => data_get($place, 'location.latitude'), 'longitude' => data_get($place, 'location.longitude'),
+            'country' => $campaign->country, 'latitude' => data_get($place, 'location.latitude'), 'longitude' => data_get($place, 'location.longitude'),
             'rating' => $place['rating'] ?? null, 'total_reviews' => $place['userRatingCount'] ?? 0,
             'website' => $website, 'has_website' => ! empty($website),
             'website_status' => $website ? 'Has Website' : 'No Website',
@@ -134,11 +162,34 @@ class GooglePlacesService
 
     public function applyFilters(array $lead, Campaign $campaign): bool
     {
+        if (! $this->insideCampaignRadius($lead, $campaign)) return false;
         if ($campaign->only_without_website && $lead['has_website']) return false;
         if ($campaign->only_with_phone && empty($lead['phone'])) return false;
         if (($lead['rating'] ?? 0) < $campaign->minimum_rating) return false;
         if (($lead['total_reviews'] ?? 0) < $campaign->minimum_reviews) return false;
         return true;
+    }
+
+    private function insideCampaignRadius(array $lead, Campaign $campaign): bool
+    {
+        if (
+            $campaign->latitude === null
+            || $campaign->longitude === null
+            || ! isset($lead['latitude'], $lead['longitude'])
+        ) {
+            return true;
+        }
+
+        $earthRadius = 6371000;
+        $lat1 = deg2rad((float) $campaign->latitude);
+        $lat2 = deg2rad((float) $lead['latitude']);
+        $latDelta = $lat2 - $lat1;
+        $lngDelta = deg2rad((float) $lead['longitude'] - (float) $campaign->longitude);
+        $a = sin($latDelta / 2) ** 2
+            + cos($lat1) * cos($lat2) * sin($lngDelta / 2) ** 2;
+        $distance = $earthRadius * 2 * atan2(sqrt($a), sqrt(1 - $a));
+
+        return $distance <= ($campaign->radius_meters ?? 10000);
     }
 
     private function request(

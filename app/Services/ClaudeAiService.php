@@ -29,6 +29,6 @@ class ClaudeAiService
 
     private function prompt(Lead $lead): string
     {
-        return "Analyze this Pakistani business lead for website development.\nBusiness: {$lead->business_name}\nCategory: {$lead->business_category}\nCity: {$lead->city}, {$lead->province}\nRating: {$lead->rating}\nReviews: {$lead->total_reviews}\nWebsite status: {$lead->website_status}\nPhone available: ".($lead->phone?'yes':'no')."\nReturn JSON with: lead_score (0-100), lead_quality (Hot/Warm/Cold), opportunity_type, match_reason, suggested_offer, suggested_pitch, whatsapp_message_english, whatsapp_message_roman_urdu, email_subject, email_body, call_script. Messages must be short, polite, natural, non-spammy, and specific to the category.";
+        return "Analyze this business lead for website development.\nBusiness: {$lead->business_name}\nCategory: {$lead->business_category}\nLocation: {$lead->city}, {$lead->province}, {$lead->country}\nRating: {$lead->rating}\nReviews: {$lead->total_reviews}\nWebsite status: {$lead->website_status}\nPhone available: ".($lead->phone?'yes':'no')."\nReturn JSON with: lead_score (0-100), lead_quality (Hot/Warm/Cold), opportunity_type, match_reason, suggested_offer, suggested_pitch, whatsapp_message_english, whatsapp_message_roman_urdu, email_subject, email_body, call_script. Put a concise localized message for the lead's country in whatsapp_message_roman_urdu. Messages must be polite, natural, non-spammy, and specific to the category.";
     }
 }

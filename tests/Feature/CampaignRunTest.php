@@ -69,7 +69,13 @@ class CampaignRunTest extends TestCase
         $this->actingAs($user)->post(route('campaigns.store'), [
             'title' => 'Draft campaign',
             'service_id' => $service->id,
-            'city' => 'Lahore',
+            'country' => 'Canada',
+            'country_code' => 'CA',
+            'province' => 'Ontario',
+            'city' => 'Toronto',
+            'latitude' => 43.6532,
+            'longitude' => -79.3832,
+            'radius_meters' => 15000,
             'business_category' => 'Restaurant',
             'minimum_rating' => 3.5,
             'minimum_reviews' => 10,
@@ -80,6 +86,10 @@ class CampaignRunTest extends TestCase
             'title' => 'Draft campaign',
             'status' => 'draft',
             'progress_percentage' => 0,
+            'country' => 'Canada',
+            'country_code' => 'CA',
+            'city' => 'Toronto',
+            'radius_meters' => 15000,
         ]);
     }
 

@@ -7,6 +7,7 @@ use App\Models\Campaign;
 use App\Models\Service;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\Rule;
 
 class CampaignController extends Controller
 {
@@ -22,16 +23,24 @@ class CampaignController extends Controller
         return view('campaigns.index', [
             'campaigns' => $campaigns,
             'services' => Service::where('user_id', auth()->id())->where('is_active', true)->get(),
+            'countries' => $this->countries(),
+            'googleMapsBrowserKey' => config('services.google_places.browser_key'),
         ]);
     }
 
     public function store(Request $request)
     {
+        $countries = $this->countries();
         $data = $request->validate([
             'title' => 'required',
             'service_id' => 'required|exists:services,id',
+            'country' => 'required|string|max:100',
+            'country_code' => ['required', 'string', 'size:2', Rule::in(array_keys($countries))],
             'province' => 'nullable',
             'city' => 'required',
+            'latitude' => 'nullable|required_with:longitude|numeric|between:-90,90',
+            'longitude' => 'nullable|required_with:latitude|numeric|between:-180,180',
+            'radius_meters' => 'required|integer|min:500|max:50000',
             'business_category' => 'required',
             'keyword' => 'nullable',
             'minimum_rating' => 'numeric|min:0|max:5',
@@ -40,11 +49,12 @@ class CampaignController extends Controller
         ]);
 
         abort_unless(Service::where('user_id', auth()->id())->whereKey($data['service_id'])->exists(), 403);
+        $data['country_code'] = strtoupper($data['country_code']);
+        $data['country'] = $countries[$data['country_code']];
 
         Campaign::create($data + [
             'user_id' => auth()->id(),
             'source_type' => 'google_places',
-            'country' => 'Pakistan',
             'only_without_website' => $request->boolean('only_without_website'),
             'only_with_phone' => $request->boolean('only_with_phone'),
             'status' => 'draft',
@@ -170,6 +180,30 @@ class CampaignController extends Controller
             'completed_at' => optional($campaign->completed_at)->toIso8601String(),
             'is_active' => in_array($campaign->status, ['pending', 'running'], true),
         ];
+    }
+
+    private function countries(): array
+    {
+        static $countries;
+        if ($countries !== null) {
+            return $countries;
+        }
+
+        $countries = [];
+
+        foreach (range('A', 'Z') as $first) {
+            foreach (range('A', 'Z') as $second) {
+                $code = $first.$second;
+                $name = locale_get_display_region('und_'.$code, 'en');
+                if ($name && $name !== $code && ! str_starts_with($name, 'Unknown Region')) {
+                    $countries[$code] = $name;
+                }
+            }
+        }
+
+        asort($countries);
+
+        return $countries;
     }
 
     private function failStalePendingCampaign(Campaign $campaign): void

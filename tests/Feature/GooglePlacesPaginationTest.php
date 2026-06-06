@@ -80,4 +80,64 @@ class GooglePlacesPaginationTest extends TestCase
         $this->assertSame([[20, 1], [39, 2]], $progress);
         Http::assertSentCount(2);
     }
+
+    public function test_campaign_search_uses_selected_country_and_map_radius(): void
+    {
+        config([
+            'services.google_places.key' => 'test-key',
+            'lead-generator.google_places_max_queries' => 1,
+        ]);
+
+        $user = User::factory()->create();
+        $service = Service::create([
+            'user_id' => $user->id,
+            'service_name' => 'Website Development',
+            'category' => 'Web Development',
+        ]);
+        $campaign = Campaign::create([
+            'user_id' => $user->id,
+            'service_id' => $service->id,
+            'title' => 'Toronto restaurants',
+            'country' => 'Canada',
+            'country_code' => 'CA',
+            'province' => 'Ontario',
+            'city' => 'Toronto',
+            'latitude' => 43.6532,
+            'longitude' => -79.3832,
+            'radius_meters' => 15000,
+            'business_category' => 'Restaurant',
+            'required_leads' => 20,
+        ]);
+
+        Http::fake(['*' => Http::response(['places' => []])]);
+
+        app(GooglePlacesService::class)->searchCampaignBusinesses($campaign);
+
+        Http::assertSent(function ($request) {
+            $payload = $request->data();
+
+            return $payload['regionCode'] === 'CA'
+                && $payload['textQuery'] === 'Restaurant'
+                && data_get($payload, 'locationBias.circle.center.latitude') === 43.6532
+                && data_get($payload, 'locationBias.circle.center.longitude') === -79.3832
+                && data_get($payload, 'locationBias.circle.radius') === 15000.0;
+        });
+
+        $service = app(GooglePlacesService::class);
+        $matchingLead = [
+            'latitude' => 43.6600,
+            'longitude' => -79.3900,
+            'has_website' => false,
+            'phone' => '14165550100',
+            'rating' => 4.0,
+            'total_reviews' => 20,
+        ];
+        $outsideLead = array_merge($matchingLead, [
+            'latitude' => 44.1000,
+            'longitude' => -79.3900,
+        ]);
+
+        $this->assertTrue($service->applyFilters($matchingLead, $campaign));
+        $this->assertFalse($service->applyFilters($outsideLead, $campaign));
+    }
 }

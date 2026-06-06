@@ -21,7 +21,13 @@ class PageRenderTest extends TestCase
         Lead::create(['user_id'=>$user->id,'service_id'=>$service->id,'campaign_id'=>$campaign->id,'business_name'=>'Test Restaurant','city'=>'Lahore','lead_score'=>90,'lead_quality'=>'Hot']);
 
         $this->actingAs($user)->get('/dashboard')->assertOk()->assertSee('Command center');
-        $this->get('/campaigns')->assertOk()->assertSee('Test campaign');
+        $this->get('/campaigns')
+            ->assertOk()
+            ->assertSee('Test campaign')
+            ->assertSee('campaign-country', false)
+            ->assertSee('campaign-city', false)
+            ->assertSee('campaign-location-map', false)
+            ->assertSee('campaign-radius', false);
         $this->get(route('campaigns.show', $campaign))
             ->assertOk()
             ->assertSee('campaign-progress-bar', false)

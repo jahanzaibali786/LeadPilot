@@ -37,6 +37,7 @@ return [
 
     'google_places' => [
         'key' => env('GOOGLE_PLACES_API_KEY'),
+        'browser_key' => env('GOOGLE_MAPS_BROWSER_API_KEY', env('GOOGLE_PLACES_API_KEY')),
     ],
 
     'anthropic' => [
