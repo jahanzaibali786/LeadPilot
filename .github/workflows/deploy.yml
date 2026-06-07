@@ -65,7 +65,13 @@ jobs:
             storage/framework/views \
             storage/logs \
             bootstrap/cache
+          touch storage/app/public/.gitkeep
+          touch storage/framework/cache/data/.gitkeep
+          touch storage/framework/sessions/.gitkeep
+          touch storage/framework/testing/.gitkeep
+          touch storage/framework/views/.gitkeep
           touch storage/logs/.gitkeep
+          touch bootstrap/cache/.gitkeep
 
       - name: Install LFTP
         run: sudo apt-get update && sudo apt-get install -y lftp
@@ -115,26 +121,11 @@ jobs:
             --exclude-glob "node_modules/**" \
             --exclude-glob ".env" \
             --exclude-glob ".env.*" \
-            --exclude-glob "storage/app/**" \
-            --exclude-glob "storage/logs/**" \
-            --exclude-glob "storage/framework/cache/**" \
-            --exclude-glob "storage/framework/sessions/**" \
-            --exclude-glob "storage/framework/testing/**" \
-            --exclude-glob "storage/framework/views/**" \
             --exclude-glob "bootstrap/cache/*.php" \
             --exclude-glob "tests/**" \
             --exclude-glob "*.zip" \
             --exclude-glob "*.sql" \
             ./ "${SFTP_REMOTE_DIR}"
-
-          cd "${SFTP_REMOTE_DIR}"
-          mkdir -p storage/app/public
-          mkdir -p storage/framework/cache/data
-          mkdir -p storage/framework/sessions
-          mkdir -p storage/framework/testing
-          mkdir -p storage/framework/views
-          mkdir -p storage/logs
-          mkdir -p bootstrap/cache
 
           bye
           EOF
