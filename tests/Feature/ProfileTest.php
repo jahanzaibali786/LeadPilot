@@ -64,6 +64,20 @@ class ProfileTest extends TestCase
         $this->assertTrue(Hash::check('correct-password', $user->fresh()->password));
     }
 
+
+    public function test_public_storage_files_are_served_without_symlink(): void
+    {
+        Storage::disk('public')->put('profile-photos/avatar.png', 'fake-image-content');
+
+        $this->get('/storage/profile-photos/avatar.png')
+            ->assertOk();
+    }
+
+    public function test_public_storage_route_blocks_path_traversal(): void
+    {
+        $this->get('/storage/../.env')->assertNotFound();
+    }
+
     public function test_user_can_upload_profile_picture(): void
     {
         Storage::fake('public');

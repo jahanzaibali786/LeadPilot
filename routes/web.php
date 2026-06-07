@@ -20,6 +20,20 @@ use App\Http\Controllers\SettingController;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Route;
 
+
+Route::get('/storage/{path}', function (string $path) {
+    abort_if(str_contains($path, '..'), 404);
+
+    $root = realpath(storage_path('app/public'));
+    $file = realpath(storage_path('app/public/'.$path));
+
+    abort_if(! $root || ! $file || ! str_starts_with($file, $root.DIRECTORY_SEPARATOR) || ! File::isFile($file), 404);
+
+    return response()->file($file, [
+        'Cache-Control' => 'public, max-age=31536000',
+    ]);
+})->where('path', '.*')->name('storage.file');
+
 Route::redirect('/', '/dashboard');
 Route::middleware('guest')->group(function () {
     Route::get('/login', [AuthController::class,'loginForm'])->name('login');
