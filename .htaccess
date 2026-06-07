@@ -1,15 +1,11 @@
 <IfModule mod_rewrite.c>
-    <IfModule mod_negotiation.c>
-        Options -MultiViews -Indexes
-    </IfModule>
-
     RewriteEngine On
 
     # Block direct web access to Laravel internals when the domain points here.
-    RewriteRule ^(?:app|bootstrap|config|database|resources|routes|tests|vendor)(?:/.*)?$ - [F,L]
-    RewriteRule ^(?:\.env(?:\..*)?|\.git(?:/.*)?|artisan|composer\.(?:json|lock)|package(?:-lock)?\.json|phpunit\.xml|vite\.config\.js)$ - [F,L]
+    RewriteRule ^(app|bootstrap|config|database|resources|routes|tests|vendor)(/.*)?$ - [F,L]
+    RewriteRule ^(\.env.*|\.git.*|artisan|composer\.(json|lock)|package(-lock)?\.json|phpunit\.xml|vite\.config\.js)$ - [F,L]
 
-    # Keep existing /public URLs working, but serve the app from the domain root.
+    # Serve the Laravel public directory from the domain root.
     RewriteCond %{REQUEST_URI} !^/public/
     RewriteRule ^(.*)$ public/$1 [L]
 </IfModule>
