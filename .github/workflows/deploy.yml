@@ -59,8 +59,9 @@ jobs:
       - name: Prepare writable Laravel directories
         run: |
           mkdir -p storage/app/public \
-            storage/framework/cache \
+            storage/framework/cache/data \
             storage/framework/sessions \
+            storage/framework/testing \
             storage/framework/views \
             storage/logs \
             bootstrap/cache
@@ -125,6 +126,15 @@ jobs:
             --exclude-glob "*.zip" \
             --exclude-glob "*.sql" \
             ./ "${SFTP_REMOTE_DIR}"
+
+          cd "${SFTP_REMOTE_DIR}"
+          mkdir -p storage/app/public
+          mkdir -p storage/framework/cache/data
+          mkdir -p storage/framework/sessions
+          mkdir -p storage/framework/testing
+          mkdir -p storage/framework/views
+          mkdir -p storage/logs
+          mkdir -p bootstrap/cache
 
           bye
           EOF
