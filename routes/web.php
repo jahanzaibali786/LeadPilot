@@ -17,6 +17,7 @@ use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\SavedSearchController;
 use App\Http\Controllers\ServiceController;
 use App\Http\Controllers\SettingController;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Route;
 
 Route::redirect('/', '/dashboard');
@@ -59,6 +60,32 @@ Route::middleware('auth')->group(function () {
     Route::resource('blacklists', BlacklistController::class)->only(['index','store','destroy']);
     Route::resource('saved-searches', SavedSearchController::class)->only(['store','destroy']);
     Route::middleware('role:Super Admin')->prefix('admin')->name('admin.')->group(function(){
+        Route::get('/storage-link', function () {
+            $target = storage_path('app/public');
+            $link = public_path('storage');
+
+            if (! File::exists($target)) {
+                File::makeDirectory($target, 0755, true);
+            }
+
+            if (File::exists($link)) {
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Storage link already exists.',
+                    'link' => $link,
+                    'target' => $target,
+                ]);
+            }
+
+            File::link($target, $link);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Storage linked successfully.',
+                'link' => $link,
+                'target' => $target,
+            ]);
+        })->name('storage.link');
         Route::get('/', [AdminController::class,'index'])->name('index');
         Route::patch('/users/{user}/role', [AdminController::class,'role'])->name('users.role');
     });
