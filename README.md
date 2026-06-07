@@ -61,3 +61,21 @@ php artisan test
 php artisan route:list
 php artisan view:cache
 ```
+
+## Campaign queue worker
+
+Campaign runs are dispatched through Laravel's database queue. The web request never launches PowerShell or another operating-system process.
+
+Local development:
+
+```bash
+php artisan campaigns:work
+```
+
+`composer dev` starts this worker automatically alongside the development server.
+
+Production: keep `CAMPAIGN_QUEUE_CONNECTION=database` and configure Supervisor, systemd, a container worker, or the hosting provider's queue-worker feature to run:
+
+```bash
+php artisan campaigns:work
+```

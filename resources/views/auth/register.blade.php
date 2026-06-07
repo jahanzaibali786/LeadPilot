@@ -1,1 +1,16 @@
-<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"><link rel="stylesheet" href="{{ asset('css/app.css') }}"><title>Register Â· LeadPilot PK</title></head><body><div class="auth-page"><section class="auth-art"><span class="eyebrow text-white-50">Built for Pakistan's local market</span><h1>Turn public business data into respectful outreach.</h1><p>No Maps scraping. No automated spam. Just compliant sources, practical scoring and messages your team chooses when to send.</p></section><section class="auth-form"><form class="auth-box" method="post" action="{{ route('register') }}">@csrf<h2 class="fw-bold">Create your workspace</h2><p class="text-secondary mb-4">Start with the website development playbook.</p>@if($errors->any())<div class="alert alert-danger">{{ $errors->first() }}</div>@endif<label class="form-label">Full name</label><input class="form-control mb-3" name="name" value="{{ old('name') }}" required><label class="form-label">Email</label><input class="form-control mb-3" type="email" name="email" value="{{ old('email') }}" required><label class="form-label">Password</label><input class="form-control mb-3" type="password" name="password" required><label class="form-label">Confirm password</label><input class="form-control mb-4" type="password" name="password_confirmation" required><button class="btn btn-brand w-100 py-2">Create account</button><p class="text-center mt-4 small">Already registered? <a href="{{ route('login') }}">Sign in</a></p></form></section></div></body></html>
+@extends('layouts.auth')
+@section('title','Register · LeadPilot PK')
+@section('art-eyebrow','Built for local markets')
+@section('art-title','Turn public business data into respectful outreach.')
+@section('art-copy','No Maps scraping. No automated spam. Just compliant sources, practical scoring and messages your team chooses when to send.')
+@section('content')
+<form method="post" action="{{ route('register') }}">@csrf
+    <h2 class="fw-bold">Create your workspace</h2><p class="text-secondary mb-4">Start with the website development playbook.</p>
+    @if($errors->any())<div class="alert alert-danger">{{ $errors->first() }}</div>@endif
+    <label class="form-label">Full name</label><input class="form-control mb-3" name="name" value="{{ old('name') }}" required>
+    <label class="form-label">Email</label><input class="form-control mb-3" type="email" name="email" value="{{ old('email') }}" required>
+    <label class="form-label">Password</label><input class="form-control mb-3" type="password" name="password" required>
+    <label class="form-label">Confirm password</label><input class="form-control mb-4" type="password" name="password_confirmation" required>
+    <button class="btn btn-brand w-100 py-2">Create account</button><p class="text-center mt-4 small">Already registered? <a href="{{ route('login') }}">Sign in</a></p>
+</form>
+@endsection

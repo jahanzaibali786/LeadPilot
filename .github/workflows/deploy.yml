@@ -1,0 +1,124 @@
+name: Deploy LeadPilot CRM
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-leadpilot-crm
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Build, test and deploy
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://crm.verositydigital.com
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: bcmath, ctype, curl, dom, fileinfo, filter, gd, intl, json, mbstring, openssl, pdo, pdo_mysql, pdo_sqlite, tokenizer, xml, zip
+          coverage: none
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install PHP dependencies
+        run: composer install --no-interaction --prefer-dist --optimize-autoloader
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build frontend assets
+        run: npm run build
+
+      - name: Run tests
+        run: php artisan test
+
+      - name: Prepare production dependencies
+        run: composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader
+
+      - name: Prepare writable Laravel directories
+        run: |
+          mkdir -p storage/app/public \
+            storage/framework/cache \
+            storage/framework/sessions \
+            storage/framework/views \
+            storage/logs \
+            bootstrap/cache
+          touch storage/logs/.gitkeep
+
+      - name: Install LFTP
+        run: sudo apt-get update && sudo apt-get install -y lftp
+
+      - name: Deploy via SFTP
+        env:
+          SFTP_HOST: access-5020464778.webspace-host.com
+          SFTP_PORT: "22"
+          SFTP_USERNAME: a2901180
+          SFTP_PASSWORD: ${{ secrets.SFTP_PASSWORD }}
+          SFTP_REMOTE_DIR: ${{ secrets.SFTP_REMOTE_DIR }}
+        run: |
+          set -euo pipefail
+
+          : "${SFTP_HOST:?Missing SFTP_HOST}"
+          : "${SFTP_PORT:=22}"
+          : "${SFTP_USERNAME:?Missing SFTP_USERNAME}"
+          : "${SFTP_PASSWORD:?Missing SFTP_PASSWORD secret}"
+          : "${SFTP_REMOTE_DIR:=/}"
+
+          ENCODED_USERNAME="$(python3 - <<'PY'
+          import os
+          import urllib.parse
+          print(urllib.parse.quote(os.environ["SFTP_USERNAME"], safe=""))
+          PY
+          )"
+
+          ENCODED_PASSWORD="$(python3 - <<'PY'
+          import os
+          import urllib.parse
+          print(urllib.parse.quote(os.environ["SFTP_PASSWORD"], safe=""))
+          PY
+          )"
+
+          lftp "sftp://${ENCODED_USERNAME}:${ENCODED_PASSWORD}@${SFTP_HOST}:${SFTP_PORT}" <<EOF
+          set sftp:auto-confirm yes
+          set net:max-retries 3
+          set net:timeout 30
+          set xfer:clobber on
+
+          mirror --reverse \
+            --verbose \
+            --parallel=2 \
+            --only-newer \
+            --exclude-glob ".git/**" \
+            --exclude-glob ".github/**" \
+            --exclude-glob "node_modules/**" \
+            --exclude-glob ".env" \
+            --exclude-glob ".env.*" \
+            --exclude-glob "storage/app/**" \
+            --exclude-glob "storage/logs/**" \
+            --exclude-glob "storage/framework/cache/**" \
+            --exclude-glob "storage/framework/sessions/**" \
+            --exclude-glob "storage/framework/testing/**" \
+            --exclude-glob "storage/framework/views/**" \
+            --exclude-glob "bootstrap/cache/*.php" \
+            --exclude-glob "tests/**" \
+            --exclude-glob "*.zip" \
+            --exclude-glob "*.sql" \
+            ./ "${SFTP_REMOTE_DIR}"
+
+          bye
+          EOF

@@ -7,6 +7,7 @@ use App\Models\Campaign;
 use App\Models\Service;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
@@ -14,12 +15,12 @@ class CampaignRunTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_campaign_runs_on_automatic_deferred_connection(): void
+    public function test_campaign_runs_on_automatic_database_connection(): void
     {
         Queue::fake();
         config([
             'services.google_places.key' => 'test-key',
-            'lead-generator.campaign_queue_connection' => 'deferred',
+            'lead-generator.campaign_queue_connection' => 'database',
         ]);
 
         $user = User::factory()->create();
@@ -40,7 +41,7 @@ class CampaignRunTest extends TestCase
             ->postJson(route('campaigns.run', $campaign))
             ->assertStatus(202)
             ->assertJson([
-                'message' => 'Campaign started automatically. Live progress is shown below.',
+                'message' => 'Campaign worker started automatically. Live progress is shown below.',
                 'show_url' => route('campaigns.show', $campaign),
                 'campaign' => [
                     'status' => 'pending',
@@ -51,7 +52,7 @@ class CampaignRunTest extends TestCase
         Queue::assertPushed(
             RunLeadCampaignJob::class,
             fn (RunLeadCampaignJob $job) => $job->campaignId === $campaign->id
-                && $job->connection === 'deferred'
+                && $job->connection === 'database'
         );
 
         $this->assertNotNull($campaign->fresh()->started_at);
@@ -163,7 +164,7 @@ class CampaignRunTest extends TestCase
             ]);
     }
 
-    public function test_running_campaign_cannot_be_dispatched_twice(): void
+    public function test_running_campaign_can_be_restarted(): void
     {
         Queue::fake();
         config(['services.google_places.key' => 'test-key']);
@@ -181,13 +182,152 @@ class CampaignRunTest extends TestCase
             'city' => 'Islamabad',
             'business_category' => 'Clinic',
             'status' => 'running',
-            'started_at' => now(),
+            'started_at' => now()->subMinutes(5),
         ]);
 
         $this->actingAs($user)
-            ->post(route('campaigns.run', $campaign))
-            ->assertStatus(422);
+            ->postJson(route('campaigns.run', $campaign))
+            ->assertStatus(202)
+            ->assertJsonPath('campaign.status', 'pending');
 
-        Queue::assertNothingPushed();
+        Queue::assertPushed(
+            RunLeadCampaignJob::class,
+            fn (RunLeadCampaignJob $job) => $job->campaignId === $campaign->id
+        );
+
+        $this->assertNotNull($campaign->fresh()->started_at);
+    }
+
+    public function test_starting_campaign_cancels_other_active_campaigns_and_clears_pending_jobs(): void
+    {
+        Queue::fake();
+        config(['services.google_places.key' => 'test-key']);
+
+        $user = User::factory()->create();
+        $service = Service::create([
+            'user_id' => $user->id,
+            'service_name' => 'Website Development',
+            'category' => 'Web Development',
+        ]);
+        $previousCampaign = Campaign::create([
+            'user_id' => $user->id,
+            'service_id' => $service->id,
+            'title' => 'Old campaign',
+            'city' => 'Karachi',
+            'business_category' => 'Agency',
+            'status' => 'running',
+            'started_at' => now()->subMinutes(10),
+        ]);
+        $campaign = Campaign::create([
+            'user_id' => $user->id,
+            'service_id' => $service->id,
+            'title' => 'Fresh campaign',
+            'city' => 'Lahore',
+            'business_category' => 'Restaurant',
+            'status' => 'draft',
+        ]);
+
+        DB::table('jobs')->insert([
+            'queue' => 'default',
+            'payload' => '{"displayName":"App\\Jobs\\RunLeadCampaignJob"}',
+            'attempts' => 0,
+            'reserved_at' => null,
+            'available_at' => now()->timestamp,
+            'created_at' => now()->timestamp,
+        ]);
+
+        $this->actingAs($user)
+            ->postJson(route('campaigns.run', $campaign))
+            ->assertStatus(202)
+            ->assertJsonPath('campaign.status', 'pending');
+
+        $this->assertSame('cancelled', $previousCampaign->fresh()->status);
+        $this->assertDatabaseMissing('jobs', [
+            'queue' => 'default',
+            'payload' => '{"displayName":"App\\Jobs\\RunLeadCampaignJob"}',
+        ]);
+        Queue::assertPushed(
+            RunLeadCampaignJob::class,
+            fn (RunLeadCampaignJob $job) => $job->campaignId === $campaign->id
+        );
+    }
+
+    public function test_campaign_can_be_edited(): void
+    {
+        $user = User::factory()->create();
+        $service = Service::create([
+            'user_id' => $user->id,
+            'service_name' => 'Website Development',
+            'category' => 'Web Development',
+        ]);
+        $campaign = Campaign::create([
+            'user_id' => $user->id,
+            'service_id' => $service->id,
+            'title' => 'Old campaign',
+            'country' => 'Pakistan',
+            'country_code' => 'PK',
+            'city' => 'Lahore',
+            'radius_meters' => 10000,
+            'business_category' => 'Restaurant',
+            'only_without_website' => true,
+            'only_with_phone' => true,
+            'status' => 'completed',
+        ]);
+
+        $this->actingAs($user)
+            ->get(route('campaigns.edit', $campaign))
+            ->assertOk()
+            ->assertSee('Edit campaign');
+
+        $this->actingAs($user)->put(route('campaigns.update', $campaign), [
+            'title' => 'Updated Toronto campaign',
+            'service_id' => $service->id,
+            'country' => 'Canada',
+            'country_code' => 'CA',
+            'province' => 'Ontario',
+            'city' => 'Toronto',
+            'latitude' => 43.6532,
+            'longitude' => -79.3832,
+            'radius_meters' => 20000,
+            'business_category' => 'Dentist',
+            'keyword' => 'family dentist',
+            'minimum_rating' => 4,
+            'minimum_reviews' => 25,
+            'required_leads' => 75,
+        ])->assertRedirect(route('campaigns.show', $campaign));
+
+        $this->assertDatabaseHas('campaigns', [
+            'id' => $campaign->id,
+            'title' => 'Updated Toronto campaign',
+            'country' => 'Canada',
+            'country_code' => 'CA',
+            'city' => 'Toronto',
+            'business_category' => 'Dentist',
+            'radius_meters' => 20000,
+            'only_without_website' => false,
+            'only_with_phone' => false,
+        ]);
+    }
+
+    public function test_active_campaign_cannot_be_edited(): void
+    {
+        $user = User::factory()->create();
+        $service = Service::create([
+            'user_id' => $user->id,
+            'service_name' => 'Website Development',
+            'category' => 'Web Development',
+        ]);
+        $campaign = Campaign::create([
+            'user_id' => $user->id,
+            'service_id' => $service->id,
+            'title' => 'Running campaign',
+            'city' => 'Lahore',
+            'business_category' => 'Restaurant',
+            'status' => 'running',
+        ]);
+
+        $this->actingAs($user)
+            ->get(route('campaigns.edit', $campaign))
+            ->assertStatus(422);
     }
 }

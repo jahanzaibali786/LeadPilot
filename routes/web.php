@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AiLeadController;
+use App\Http\Controllers\AiChatController;
 use App\Http\Controllers\AdminController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\BlacklistController;
@@ -12,6 +13,7 @@ use App\Http\Controllers\LeadBoardController;
 use App\Http\Controllers\LeadController;
 use App\Http\Controllers\LeadNoteController;
 use App\Http\Controllers\LeadStatusController;
+use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\SavedSearchController;
 use App\Http\Controllers\ServiceController;
 use App\Http\Controllers\SettingController;
@@ -32,8 +34,10 @@ Route::middleware('guest')->group(function () {
 Route::middleware('auth')->group(function () {
     Route::post('/logout', [AuthController::class,'logout'])->name('logout');
     Route::get('/dashboard', DashboardController::class)->name('dashboard');
+    Route::get('/profile', [ProfileController::class, 'show'])->name('profile.show');
+    Route::put('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::resource('services', ServiceController::class)->only(['index','store','update','destroy']);
-    Route::resource('campaigns', CampaignController::class)->only(['index','store','show','destroy']);
+    Route::resource('campaigns', CampaignController::class)->only(['index','create','store','show','edit','update','destroy']);
     Route::post('/campaigns/{campaign}/run', [CampaignController::class,'run'])->name('campaigns.run');
     Route::get('/campaigns/{campaign}/status', [CampaignController::class,'status'])->name('campaigns.status');
     Route::post('/campaigns/{campaign}/cancel', [CampaignController::class,'cancel'])->name('campaigns.cancel');
@@ -48,6 +52,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/leads/{lead}/follow-ups', [FollowUpController::class,'store'])->name('leads.followups.store');
     Route::patch('/follow-ups/{followUp}/complete', [FollowUpController::class,'complete'])->name('followups.complete');
     Route::post('/leads/{lead}/ai-analysis', AiLeadController::class)->name('leads.ai');
+    Route::post('/ai/chat', AiChatController::class)->middleware('throttle:20,1')->name('ai.chat');
     Route::get('/exports/leads', ExportController::class)->name('exports.leads');
     Route::get('/settings', [SettingController::class,'index'])->name('settings.index');
     Route::put('/settings', [SettingController::class,'update'])->name('settings.update');

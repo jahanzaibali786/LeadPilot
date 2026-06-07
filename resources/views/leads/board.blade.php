@@ -4,9 +4,9 @@
 
 @section('content')
 <section class="panel mb-4">
-    <form class="panel-body filter-bar" method="get">
+    <form class="panel-body filter-bar lead-filter-form" method="get">
         <input class="form-control" name="search" value="{{ request('search') }}" placeholder="Search this board">
-        <select class="form-select" name="campaign_id">
+        <select class="form-select auto-submit-filter" name="campaign_id">
             <option value="">All campaigns</option>
             @foreach($campaigns as $campaign)
                 <option value="{{ $campaign->id }}" @selected(request('campaign_id') == $campaign->id)>{{ $campaign->title }}</option>
@@ -14,7 +14,7 @@
         </select>
         <input class="form-control" name="city" value="{{ request('city') }}" placeholder="City">
         <input class="form-control" name="category" value="{{ request('category') }}" placeholder="Category">
-        <select class="form-select" name="lead_quality">
+        <select class="form-select auto-submit-filter" name="lead_quality">
             <option value="">All quality</option>
             @foreach(['Hot', 'Warm', 'Cold'] as $quality)
                 <option @selected(request('lead_quality') === $quality)>{{ $quality }}</option>
@@ -63,6 +63,9 @@
                 <div class="card-actions">
                     <a href="{{ route('leads.show', $lead) }}" title="Open"><i class="bi bi-eye"></i></a>
                     @if($lead->google_maps_url)<a href="{{ $lead->google_maps_url }}" target="_blank" title="Maps"><i class="bi bi-geo-alt"></i></a>@endif
+                    @if($lead->facebook_url)<a href="{{ $lead->facebook_url }}" target="_blank" rel="noopener" title="Facebook"><i class="bi bi-facebook"></i></a>@endif
+                    @if($lead->instagram_url)<a href="{{ $lead->instagram_url }}" target="_blank" rel="noopener" title="Instagram"><i class="bi bi-instagram"></i></a>@endif
+                    @if($lead->linkedin_url)<a href="{{ $lead->linkedin_url }}" target="_blank" rel="noopener" title="LinkedIn"><i class="bi bi-linkedin"></i></a>@endif
                     @if($lead->whatsapp_message_english)<button type="button" title="Copy message" onclick='navigator.clipboard.writeText(@json($lead->whatsapp_message_english))'><i class="bi bi-whatsapp"></i></button>@endif
                 </div>
             </article>
@@ -80,6 +83,10 @@
 @push('scripts')
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 <script>
+document.querySelectorAll('.auto-submit-filter').forEach((select) => {
+    select.addEventListener('change', () => select.form.requestSubmit());
+});
+
 const token = document.querySelector('meta[name=csrf-token]').content;
 const toast = new bootstrap.Toast('#boardToast');
 const globalUniqueButton = document.getElementById('global-unique-button');

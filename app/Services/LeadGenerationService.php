@@ -52,6 +52,14 @@ class LeadGenerationService
                 $data = $this->places->normalizeGoogleLead($place, $campaign);
                 if (! $this->places->applyFilters($data, $campaign) || $this->blacklisted($campaign->user_id, $data)) continue;
 
+                if (! empty($data['website'])) {
+                    $socialLinks = array_filter(
+                        app(SocialMediaDiscoveryService::class)->discover($data['website']),
+                        fn ($url) => filled($url)
+                    );
+                    $data = array_merge($data, $socialLinks);
+                }
+
                 $identity = $this->duplicates->identityKey($data);
                 if (isset($seen[$identity])) {
                     $campaign->increment('duplicates_removed');
@@ -67,6 +75,7 @@ class LeadGenerationService
                 if ($existing) {
                     if ($existing->campaign_id === $campaign->id) {
                         $existing->update($scoredData);
+                        $this->syncCampaignLeadTotals($campaign);
                     } else {
                         $campaign->increment('duplicates_removed');
                     }
@@ -80,6 +89,7 @@ class LeadGenerationService
                 ]);
                 $lead->activities()->create(['user_id'=>$campaign->user_id,'action'=>'created','description'=>'Lead imported from Google Places API.']);
                 $savedCount++;
+                $this->syncCampaignLeadTotals($campaign);
 
                 if ($savedCount >= $campaign->required_leads) break;
             }

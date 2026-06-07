@@ -140,4 +140,59 @@ class GooglePlacesPaginationTest extends TestCase
         $this->assertTrue($service->applyFilters($matchingLead, $campaign));
         $this->assertFalse($service->applyFilters($outsideLead, $campaign));
     }
+    public function test_social_profile_from_google_is_not_classified_as_a_website(): void
+    {
+        $user = User::factory()->create();
+        $service = Service::create([
+            'user_id' => $user->id,
+            'service_name' => 'Website Development',
+            'category' => 'Web Development',
+        ]);
+        $campaign = Campaign::create([
+            'user_id' => $user->id,
+            'service_id' => $service->id,
+            'title' => 'Travel agencies',
+            'city' => 'Rawalpindi',
+            'business_category' => 'Travel Agency',
+        ]);
+
+        $lead = app(GooglePlacesService::class)->normalizeGoogleLead([
+            'id' => 'caravan-place',
+            'displayName' => ['text' => 'Caravan Travelers'],
+            'websiteUri' => 'https://www.instagram.com/caravan.travelers',
+        ], $campaign);
+
+        $this->assertFalse($lead['has_website']);
+        $this->assertNull($lead['website']);
+        $this->assertSame('Social Profile Only', $lead['website_status']);
+        $this->assertSame('https://www.instagram.com/caravan.travelers', $lead['instagram_url']);
+        $this->assertSame('New Website Opportunity', $lead['opportunity_type']);
+    }
+
+    public function test_real_business_website_keeps_clickable_url_data(): void
+    {
+        $user = User::factory()->create();
+        $service = Service::create([
+            'user_id' => $user->id,
+            'service_name' => 'Website Development',
+            'category' => 'Web Development',
+        ]);
+        $campaign = Campaign::create([
+            'user_id' => $user->id,
+            'service_id' => $service->id,
+            'title' => 'Travel agencies',
+            'city' => 'Rawalpindi',
+            'business_category' => 'Travel Agency',
+        ]);
+
+        $lead = app(GooglePlacesService::class)->normalizeGoogleLead([
+            'id' => 'real-site-place',
+            'displayName' => ['text' => 'Example Travels'],
+            'websiteUri' => 'https://example-travels.test',
+        ], $campaign);
+
+        $this->assertTrue($lead['has_website']);
+        $this->assertSame('https://example-travels.test', $lead['website']);
+        $this->assertSame('Has Website', $lead['website_status']);
+    }
 }

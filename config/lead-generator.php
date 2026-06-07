@@ -6,12 +6,11 @@ return [
     | Campaign Queue Connection
     |--------------------------------------------------------------------------
     |
-    | The "deferred" driver runs the campaign after the HTTP response is sent,
-    | so XAMPP does not need a terminal queue worker. Production servers using
-    | Supervisor may change this to "database" or "redis".
+    | Campaigns use Laravel's database queue. Run php artisan campaigns:work
+    | locally and configure the same command under Supervisor/systemd in production.
     |
     */
-    'campaign_queue_connection' => env('CAMPAIGN_QUEUE_CONNECTION', 'deferred'),
+    'campaign_queue_connection' => env('CAMPAIGN_QUEUE_CONNECTION', 'database'),
 
     'stale_pending_seconds' => (int) env('CAMPAIGN_STALE_PENDING_SECONDS', 30),
 

@@ -13,6 +13,8 @@ class GooglePlacesService
 {
     private const BASE = 'https://places.googleapis.com/v1';
 
+    public function __construct(private GooglePlacesCredentialService $credentials) {}
+
     public function searchBusinesses(
         string $keyword,
         string $city,
@@ -123,7 +125,7 @@ class GooglePlacesService
     public function getPlaceDetails(string $placeId): array
     {
         $response = Http::withHeaders([
-            'X-Goog-Api-Key' => config('services.google_places.key'),
+            'X-Goog-Api-Key' => $this->credentials->forUser(auth()->id()),
             'X-Goog-FieldMask' => 'id,displayName,formattedAddress,location,rating,userRatingCount,types,websiteUri,nationalPhoneNumber,internationalPhoneNumber,googleMapsUri',
         ])->timeout(20)->get(self::BASE.'/places/'.$placeId);
         if ($response->failed()) throw new RuntimeException($this->message($response));
@@ -136,8 +138,8 @@ class GooglePlacesService
             $place['internationalPhoneNumber'] ?? $place['nationalPhoneNumber'] ?? null,
             $campaign->country_code
         );
-        $website = $place['websiteUri'] ?? null;
-        return array_merge($phone, [
+        $website = app(WebsiteClassifier::class)->classify($place['websiteUri'] ?? null);
+        return array_merge($phone, $website['social'], [
             'google_place_id' => $place['id'] ?? null,
             'google_maps_url' => $place['googleMapsUri'] ?? $this->generateGoogleMapsUrl($place['id'] ?? null, data_get($place, 'location.latitude'), data_get($place, 'location.longitude')),
             'business_name' => data_get($place, 'displayName.text', 'Unknown business'),
@@ -145,15 +147,15 @@ class GooglePlacesService
             'address' => $place['formattedAddress'] ?? null, 'city' => $campaign->city, 'province' => $campaign->province,
             'country' => $campaign->country, 'latitude' => data_get($place, 'location.latitude'), 'longitude' => data_get($place, 'location.longitude'),
             'rating' => $place['rating'] ?? null, 'total_reviews' => $place['userRatingCount'] ?? 0,
-            'website' => $website, 'has_website' => ! empty($website),
-            'website_status' => $website ? 'Has Website' : 'No Website',
-            'online_presence_status' => $website ? 'Has Website' : (! empty($phone['phone']) ? 'Google Listing + Phone' : 'Google Listing Only'),
-            'opportunity_type' => $website ? 'Website Redesign Opportunity' : 'New Website Opportunity',
+            'website' => $website['website'], 'has_website' => $website['has_website'],
+            'website_status' => $website['website_status'],
+            'online_presence_status' => $website['has_website'] ? 'Has Website' : ($website['website_status'] === 'Social Profile Only' ? 'Social Profile Only' : (! empty($phone['phone']) ? 'Google Listing + Phone' : 'Google Listing Only')),
+            'opportunity_type' => $website['has_website'] ? 'Website Redesign Opportunity' : 'New Website Opportunity',
             'source_name' => 'Google Places API', 'source_url' => $place['googleMapsUri'] ?? null, 'last_checked_at' => now(),
         ]);
     }
 
-    public function hasWebsite(array $place): bool { return ! empty($place['websiteUri']); }
+    public function hasWebsite(array $place): bool { return app(WebsiteClassifier::class)->classify($place['websiteUri'] ?? null)['has_website']; }
     public function generateGoogleMapsUrl(?string $placeId, mixed $lat = null, mixed $lng = null): ?string
     {
         if ($placeId) return 'https://www.google.com/maps/place/?q=place_id:'.$placeId;
@@ -201,7 +203,11 @@ class GooglePlacesService
     ): Response
     {
         $started = microtime(true);
-        $response = Http::withHeaders(['X-Goog-Api-Key' => config('services.google_places.key'), 'X-Goog-FieldMask' => $fields])
+        $userId = $campaignId ? Campaign::whereKey($campaignId)->value('user_id') : auth()->id();
+        $apiKey = $this->credentials->forUser($userId);
+        if (! $apiKey) throw new RuntimeException('Add a Google Places API key in Settings or GOOGLE_PLACES_API_KEY.');
+
+        $response = Http::withHeaders(['X-Goog-Api-Key' => $apiKey, 'X-Goog-FieldMask' => $fields])
             ->timeout(30)->post(self::BASE.$endpoint, $payload);
         ApiLog::create([
             'campaign_id' => $campaignId,
