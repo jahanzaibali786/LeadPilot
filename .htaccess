@@ -5,7 +5,13 @@
     RewriteRule ^(app|bootstrap|config|database|resources|routes|tests|vendor)(/.*)?$ - [F,L]
     RewriteRule ^(\.env.*|\.git.*|artisan|composer\.(json|lock)|package(-lock)?\.json|phpunit\.xml|vite\.config\.js)$ - [F,L]
 
-    # Serve the Laravel public directory from the domain root.
+    # Serve real public files directly from /public.
     RewriteCond %{REQUEST_URI} !^/public/
+    RewriteCond %{DOCUMENT_ROOT}/public/$1 -f [OR]
+    RewriteCond %{DOCUMENT_ROOT}/public/$1 -d
     RewriteRule ^(.*)$ public/$1 [L]
+
+    # Send all application routes to Laravel's front controller.
+    RewriteCond %{REQUEST_URI} !^/public/
+    RewriteRule ^(.*)$ public/index.php [L]
 </IfModule>
